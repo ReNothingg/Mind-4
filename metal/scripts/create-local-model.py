@@ -28,21 +28,21 @@ o200k_mindfour = tiktoken.Encoding(
     pat_str=o200k_base._pat_str,
     mergeable_ranks=o200k_base._mergeable_ranks,
     special_tokens={
-        "<|reversed199998|>": 199998,  # unused
+        "<|reversed199998|>": 199998,
         "<|endoftext|>": 199999,
         "<|untrusted|>": 200000,
         "<|endofuntrusted|>": 200001,
         "<|return|>": 200002,
         "<|constrain|>": 200003,
-        "<|reversed200004|>": 200004,  # unused
+        "<|reversed200004|>": 200004,
         "<|channel|>": 200005,
         "<|start|>": 200006,
         "<|end|>": 200007,
         "<|message|>": 200008,
-        "<|reversed200008|>": 200008,  # unused
-        "<|reversed200009|>": 200009,  # unused
-        "<|reversed200010|>": 200010,  # unused
-        "<|reversed200011|>": 200011,  # unused
+        "<|reversed200008|>": 200008,
+        "<|reversed200009|>": 200009,
+        "<|reversed200010|>": 200010,
+        "<|reversed200011|>": 200011,
         "<|call|>": 200012,
         "<|refusal|>": 200013,
     }
@@ -79,7 +79,7 @@ mindfour_MODEL_UUID = UUID('df52dc86-1789-4ed0-a295-66f10508145b').bytes
 APPLE_GPU_LAYOUT_UUID = UUID('229177a8-5775-4268-bfd8-d588b351c56d').bytes
 TIKTOKEN_TOKENIZER_UUID = UUID('7401aded-2a95-40cb-b782-9ccebaafe72b').bytes
 
-UE8_OFFSET = 14  # bias to MXFP4 block scales
+UE8_OFFSET = 14
 
 def write_file_header(f):
     f.write(FILE_MAGIC)
@@ -194,14 +194,12 @@ def main(args):
 
     tokens_size = 0
     num_text_tokens = 0
-    # First add all text tokens
     for t in range(o200k_mindfour.n_vocab):
         if not harmony_encoding.is_special_token(t):
             token_bytes = o200k_mindfour.decode_single_token_bytes(t)
             assert len(token_bytes) > 0
-            tokens_size += len(token_bytes) + 2  # uint16_t string length + string data
+            tokens_size += len(token_bytes) + 2
             num_text_tokens += 1
-    # Then add all special tokens
     num_included_tokens = 200013 + 1
     print(f"Tokenizer: {num_included_tokens} tokens")
 
@@ -246,18 +244,15 @@ def main(args):
                                    regex_size=len(o200k_mindfour._pat_str.encode("ascii")) + 1,
                                    tokens_size=tokens_size)
 
-            ### Tokenizer
-            # Special tokens
             for token_idx in range(num_text_tokens, num_included_tokens):
                 token = o200k_mindfour.decode_single_token_bytes(token_idx).decode('ascii')
                 if token in INCLUDE_SPECIAL_TOKENS:
                     dst.write(SPECIAL_TOKEN_UUID[token])
                 else:
                     dst.write(bytes(16))
-            # Regex
             dst.write(o200k_mindfour._pat_str.encode("ascii"))
             dst.write(struct.pack('B', 0))
-            # Text tokens
+
             tokenizer_bytes_written = 0
             for t in range(num_text_tokens):
                 token_bytes = o200k_mindfour.decode_single_token_bytes(t)
@@ -269,7 +264,7 @@ def main(args):
             write_padding(dst)
 
             embedding_weight = src.get_tensor("embedding.weight")
-            # Filter out unused tokens
+
             embedding_weight = embedding_weight[:num_included_tokens, :]
             write_embedding_weight(dst, embedding_weight)
 
@@ -284,7 +279,7 @@ def main(args):
                     qk = qk.view(num_q_heads + num_kv_heads, 2, head_dim // 2, -1).transpose(1, 2).reshape(num_q_heads + num_kv_heads, head_dim, -1)
                     q = qk[:num_q_heads, ...]
                     k = qk[num_q_heads:, ...]
-                    # Factor multiplication by 1/sqrt(64) = 0.125 = 0.5 * 0.25 in SDPA into Q and K projections
+                    # 1/sqrt(64) = 0.125 = 0.5 * 0.25 
                     assert head_dim == 64
                     q *= 0.5
                     k *= 0.25
@@ -318,7 +313,6 @@ def main(args):
                 assert mlp2_scales.min().item() < 254 - UE8_OFFSET
                 mlp2_bias = src.get_tensor(f"block.{n}.mlp.mlp2_bias")
 
-                # Write MoE weights grouped by expert
                 write_padding(dst)
 
                 for e in range(num_experts):

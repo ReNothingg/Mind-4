@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Простой скрипт для обучения Mind-4 модели в Google Colab
-Использование: python colab_train.py --config config/train.yaml --data train/train_data.txt
-"""
-
 import os
 import sys
 import yaml
@@ -17,7 +11,6 @@ import argparse
 from typing import Optional
 import logging
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -32,12 +25,9 @@ except ImportError:
 
 
 class SimpleTextDataset(Dataset):
-    """Простой датасет для текстовых данных"""
-
     def __init__(self, file_path: str, max_seq_length: int = 2048, max_samples: Optional[int] = None):
         self.max_seq_length = max_seq_length
 
-        # Читаем все данные
         with open(file_path, 'r', encoding='utf-8') as f:
             self.texts = f.readlines()
 
@@ -54,10 +44,8 @@ class SimpleTextDataset(Dataset):
     def __getitem__(self, idx):
         text = self.texts[idx]
 
-        # Простая токенизация (используем ord для символов)
         tokens = [ord(c) % 50000 for c in text][:self.max_seq_length]
 
-        # Паддируем
         if len(tokens) < self.max_seq_length:
             tokens = tokens + [0] * (self.max_seq_length - len(tokens))
 
@@ -114,11 +102,9 @@ def train_epoch(model: torch.nn.Module, train_loader: DataLoader,
         input_ids = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
 
-        # Forward pass
         with torch.autocast(device_type='cuda', dtype=torch.float16):
             logits = model(input_ids)
 
-            # Loss
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 labels.view(-1),
@@ -188,29 +174,24 @@ def main():
 
     args = parser.parse_args()
 
-    # Проверяем конфиг файл
     if not os.path.exists(args.config):
         logger.error(f"Конфиг-файл не найден: {args.config}")
         sys.exit(1)
 
-    # Проверяем файл данных
     if not os.path.exists(args.data):
         logger.error(f"Файл данных не найден: {args.data}")
         sys.exit(1)
 
     config = load_config(args.config)
 
-    # Устройство
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Используем устройство: {device}")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
         logger.info(f"Память GPU: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
-    # Создаем папки
     Path(config['training']['save_path'].split('{')[0]).mkdir(exist_ok=True, parents=True)
 
-    # Конфиг модели
     model_config = ModelConfig(
         hidden_size=config['model']['hidden_size'],
         num_hidden_layers=config['model']['num_hidden_layers'],
@@ -230,7 +211,6 @@ def main():
         swiglu_limit=config['model']['swiglu_limit'],
     )
 
-    # Создаем модель
     logger.info("Создаем модель...")
     model = Model(model_config, device=device, dtype=torch.float16)
     model = model.to(device)
@@ -238,7 +218,6 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Количество параметров: {total_params:,}")
 
-    # Оптимизатор
     optimizer_config = config['training']['optimizer']
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -248,13 +227,11 @@ def main():
         eps=optimizer_config['eps'],
     )
 
-    # Загружаем чекпоинт если нужно
     start_epoch = 0
     if args.resume and args.checkpoint:
         start_epoch = load_checkpoint(model, optimizer, args.checkpoint, device)
         start_epoch += 1
 
-    # Датасеты
     logger.info("Загружаем датасеты...")
     train_dataset = SimpleTextDataset(
         args.data,
@@ -270,7 +247,6 @@ def main():
             max_samples=args.max_samples // 4 if args.max_samples else None
         )
 
-    # Data loaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['data']['batch_size'],
@@ -289,7 +265,6 @@ def main():
             pin_memory=False,
         )
 
-    # Обучение
     num_epochs = config['training']['num_epochs']
     gradient_accumulation_steps = config['training']['gradient_accumulation_steps']
 
@@ -302,14 +277,12 @@ def main():
         logger.info(f"Эпоха {epoch+1}/{num_epochs}")
         logger.info(f"{'='*50}")
 
-        # Обучение
         train_loss = train_epoch(
             model, train_loader, optimizer, device,
             gradient_accumulation_steps=gradient_accumulation_steps
         )
         logger.info(f"Train Loss: {train_loss:.4f}")
 
-        # Валидация
         if val_loader:
             val_loss = validate(model, val_loader, device)
             logger.info(f"Val Loss: {val_loss:.4f}")
@@ -318,7 +291,6 @@ def main():
                 best_val_loss = val_loss
                 logger.info(f"Новый лучший результат! (loss: {val_loss:.4f})")
 
-        # Сохранение чекпоинта
         if (epoch + 1) % config['training']['save_steps'] == 0:
             save_path = config['training']['save_path'].format(epoch=epoch+1)
             save_checkpoint(model, optimizer, epoch, save_path)
@@ -329,7 +301,6 @@ def main():
 
     logger.info("\nОбучение завершено!")
 
-    # Финальное сохранение
     final_path = f"./checkpoints/mind_final.ckpt"
     save_checkpoint(model, optimizer, num_epochs - 1, final_path)
     logger.info(f"Финальная модель сохранена: {final_path}")
